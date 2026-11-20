@@ -338,10 +338,20 @@ def format_article(num: int, sotto: int) -> str:
     return str(num) if sotto <= 1 else f"{num}-{_SUFFISSI[sotto - 2]}"
 
 
+# Codici approvati come allegato del decreto: il risolutore apre l'articolo solo con il
+# suffisso dell'allegato nell'URN (verificato su www.normattiva.it il 2026-11-20).
+ALLEGATO_CODICI: dict[str, str] = {
+    "urn:nir:stato:regio.decreto:1930-10-19;1398": ":1",  # codice penale
+    "urn:nir:stato:regio.decreto:1942-03-16;262": ":2",  # codice civile
+}
+
+
 def n2ls_url(urn: str, articolo: str | None = None) -> str:
     """URL risolutore Normattiva per URN (verificato), con eventuale articolo."""
-    suffix = f"~art{articolo.replace('-', '')}" if articolo else ""
-    return f"{NORMATTIVA_SITE}/uri-res/N2Ls?{urn}{suffix}"
+    if not articolo:
+        return f"{NORMATTIVA_SITE}/uri-res/N2Ls?{urn}"
+    allegato = ALLEGATO_CODICI.get(urn, "")
+    return f"{NORMATTIVA_SITE}/uri-res/N2Ls?{urn}{allegato}~art{articolo.replace('-', '')}"
 
 
 # --------------------------------------------------------------- metadati ---

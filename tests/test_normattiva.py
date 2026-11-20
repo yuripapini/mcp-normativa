@@ -260,3 +260,16 @@ async def test_classe_provvedimento(client, api):
     classe, item = await client.classe_provvedimento(act)
     assert classe == nt.CLASSE_AGGIORNATO
     assert item is not None and item["codiceRedazionale"] == "090G0294"
+
+
+def test_n2ls_url_codici_in_allegato():
+    cp = "urn:nir:stato:regio.decreto:1930-10-19;1398"
+    cc = "urn:nir:stato:regio.decreto:1942-03-16;262"
+    base = "https://www.normattiva.it/uri-res/N2Ls?"
+    assert nt.n2ls_url(cp, "612-bis") == base + cp + ":1~art612bis"
+    assert nt.n2ls_url(cc, "2043") == base + cc + ":2~art2043"
+    # senza articolo: URL dell'atto invariato
+    assert nt.n2ls_url(cp) == base + cp
+    # altri atti invariati
+    cpp = "urn:nir:stato:decreto.del.presidente.della.repubblica:1988-09-22;447"
+    assert nt.n2ls_url(cpp, "380") == base + cpp + "~art380"

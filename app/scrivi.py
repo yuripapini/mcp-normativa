@@ -16,6 +16,11 @@ TipoScritto = Literal[
     "descrizione_fatto",
     "verbale_violazione_cds",
     "verbale_accertamento",
+    "verbale_denuncia",
+    "annotazione_pg",
+    "verbale_sit",
+    "verbale_perquisizione",
+    "verbale_identificazione",
 ]
 
 
@@ -27,6 +32,7 @@ class Tipo:
     mail: bool = False
     bozza: bool = False
     verbale: bool = False
+    pg: bool = False
 
 
 TIPI: dict[str, Tipo] = {
@@ -41,6 +47,15 @@ TIPI: dict[str, Tipo] = {
         "Verbale: descrizione della violazione (Codice della strada)", bozza=True, verbale=True
     ),
     "verbale_accertamento": Tipo("Verbale di accertamento o constatazione", bozza=True, verbale=True),
+    "verbale_denuncia": Tipo("Verbale di ricezione di denuncia o querela", bozza=True, verbale=True, pg=True),
+    "annotazione_pg": Tipo(
+        "Annotazione di PG / comunicazione della notizia di reato", bozza=True, verbale=True, pg=True
+    ),
+    "verbale_sit": Tipo("Verbale di sommarie informazioni", bozza=True, verbale=True, pg=True),
+    "verbale_perquisizione": Tipo("Verbale di perquisizione e sequestro", bozza=True, verbale=True, pg=True),
+    "verbale_identificazione": Tipo(
+        "Verbale di identificazione ed elezione di domicilio", bozza=True, verbale=True, pg=True
+    ),
 }
 
 BOZZA_PREFIX = "BOZZA - da verificare prima dell'uso."

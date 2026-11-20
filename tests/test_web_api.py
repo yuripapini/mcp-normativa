@@ -183,6 +183,18 @@ def test_scrivi_endpoint():
     assert "secondo paragrafo" in body["html"]
 
 
+def test_scrivi_endpoint_tipo_pg():
+    provider = FakeProvider([LLMResult(content="OGGETTO:\n---\nL'anno [DA COMPLETARE] ... [DENUNCIANTE]")])
+    with make_client(provider=provider) as tc:
+        r = tc.post(
+            "/api/scrivi",
+            json={"tipo": "verbale_denuncia", "istruzioni": "ricezione denuncia di [DENUNCIANTE] per furto"},
+            headers=_headers(),
+        )
+    assert r.status_code == 200
+    assert r.json()["testo"].startswith(BOZZA_PREFIX)
+
+
 def test_new_endpoints_require_code_and_enabled():
     body_r = {"law_id": "x", "article": "1"}
     body_s = {"tipo": "verbale_violazione_cds", "istruzioni": "x"}

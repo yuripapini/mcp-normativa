@@ -1,6 +1,6 @@
 "use strict";
 
-// LexBot web: schede Domanda, Verifica, Strada e Scrivi (pannelli Strada/Scrivi in panels.js).
+// LexBot web: schede Domanda, Verifica, Strada, Indagini e Scrivi (pannelli Strada/Scrivi in panels.js).
 // Il testo di Domanda passa da LexMask prima dell'invio; i valori originali tornano solo nel browser.
 // Codice di accesso e storico restano nel browser (localStorage); la pagina funziona anche senza.
 
@@ -31,7 +31,9 @@
       panel: "query",
     },
     strada: { panel: "strada", label: "Strada" },
+    indagini: { panel: "indagini", label: "Indagini" },
     scrivi: { panel: "scrivi", label: "Scrivi" },
+    pausa: { panel: "pausa", label: "Pausa" },
   };
 
   const $ = (id) => document.getElementById(id);
@@ -53,7 +55,10 @@
     clearHistory: $("clear-history"),
     askMaskInfo: $("ask-mask-info"),
     stradaPanel: $("strada-panel"),
+    indaginiPanel: $("indagini-panel"),
     scriviForm: $("scrivi-form"),
+    pausaPanel: $("pausa-panel"),
+    content: document.querySelector(".content"),
   };
 
   let mode = "ask";
@@ -152,6 +157,8 @@
     el.login.hidden = true;
     el.app.hidden = false;
     renderHistory();
+    // Rientro dopo l'accesso con la scheda Pausa attiva: il gioco torna visibile (in pausa).
+    if (mode === "pausa" && window.LexPausa) window.LexPausa.show();
   }
 
   function setMode(next) {
@@ -161,10 +168,26 @@
       const active = tab.dataset.mode === mode;
       tab.classList.toggle("active", active);
       tab.setAttribute("aria-selected", String(active));
+      if (active) {
+        // Solo scorrimento orizzontale della barra: la pagina non salta in verticale.
+        const bar = tab.parentElement;
+        bar.scrollLeft = tab.offsetLeft - (bar.clientWidth - tab.offsetWidth) / 2;
+      }
     });
+    syncTabFade();
     el.form.hidden = cfg.panel !== "query";
     el.stradaPanel.hidden = cfg.panel !== "strada";
+    el.indaginiPanel.hidden = cfg.panel !== "indagini";
     el.scriviForm.hidden = cfg.panel !== "scrivi";
+    // In Pausa niente Storico e niente risultato: le partite non finiscono nello storico.
+    const inPausa = cfg.panel === "pausa";
+    el.pausaPanel.hidden = !inPausa;
+    // Classe sul contenitore (non `hidden`): tornando alle altre schede risultato e Storico riappaiono come prima.
+    el.content.classList.toggle("in-pausa", inPausa);
+    if (window.LexPausa) {
+      if (inPausa) window.LexPausa.show();
+      else window.LexPausa.hide();
+    }
     el.askMaskInfo.hidden = true;
     if (cfg.panel === "query") {
       el.hint.textContent = cfg.hint;
@@ -176,7 +199,7 @@
   // Una sola richiesta alla volta per tutte le schede (condiviso con panels.js tramite ctx).
   function setBusy(value) {
     busy = value;
-    document.querySelectorAll("#strada-detail button, #scrivi-submit").forEach((b) => (b.disabled = value));
+    document.querySelectorAll("#strada-detail button, #indagini-detail button, #scrivi-submit").forEach((b) => (b.disabled = value));
     el.submit.disabled = value;
     el.query.readOnly = value;
   }
@@ -460,6 +483,8 @@
     accessCode = "";
     storage.remove(CODE_KEY);
     el.result.hidden = true;
+    // Il gioco non deve proseguire dietro la schermata di accesso.
+    if (window.LexPausa) window.LexPausa.hide();
     showLogin(message);
   }
 
@@ -483,6 +508,20 @@
   });
 
   el.tabs.forEach((tab) => tab.addEventListener("click", () => setMode(tab.dataset.mode)));
+
+  // Sfumatura ai bordi della barra delle tab quando ci sono altre tab fuori vista.
+  const tabBar = el.tabs.length ? el.tabs[0].parentElement : null;
+  function syncTabFade() {
+    if (!tabBar) return;
+    const max = tabBar.scrollWidth - tabBar.clientWidth;
+    tabBar.classList.toggle("more-left", tabBar.scrollLeft > 2);
+    tabBar.classList.toggle("more-right", tabBar.scrollLeft < max - 2);
+  }
+  if (tabBar) {
+    tabBar.addEventListener("scroll", syncTabFade, { passive: true });
+    window.addEventListener("resize", syncTabFade);
+    syncTabFade();
+  }
 
   el.logout.addEventListener("click", () => logout(""));
 
@@ -509,6 +548,17 @@
       panels.scrivi.prefill(tipoValue, text);
     },
   });
+
+  if (window.LexPausa) {
+    window.LexPausa.init({
+      openStrada(articolo) {
+        setMode("strada");
+        const filtro = $("strada-filter");
+        filtro.value = String(articolo);
+        filtro.dispatchEvent(new Event("input", { bubbles: true }));
+      },
+    });
+  }
 
   setMode("ask");
   if (accessCode) showApp();

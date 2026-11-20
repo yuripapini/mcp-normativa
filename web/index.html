@@ -49,7 +49,9 @@
         <button class="tab active" role="tab" aria-selected="true" id="tab-ask" aria-controls="query-form" data-mode="ask" type="button">Domanda</button>
         <button class="tab" role="tab" aria-selected="false" id="tab-verifica" aria-controls="query-form" data-mode="verifica" type="button">Verifica</button>
         <button class="tab" role="tab" aria-selected="false" id="tab-strada" aria-controls="strada-panel" data-mode="strada" type="button">Strada</button>
+        <button class="tab" role="tab" aria-selected="false" id="tab-indagini" aria-controls="indagini-panel" data-mode="indagini" type="button">Indagini</button>
         <button class="tab" role="tab" aria-selected="false" id="tab-scrivi" aria-controls="scrivi-form" data-mode="scrivi" type="button">Scrivi</button>
+        <button class="tab" role="tab" aria-selected="false" id="tab-pausa" aria-controls="pausa-panel" data-mode="pausa" type="button">Pausa</button>
       </div>
 
       <form id="query-form" class="composer" role="tabpanel" aria-labelledby="tab-ask tab-verifica">
@@ -70,6 +72,15 @@
         <p class="hint">Importi, punti e sanzioni accessorie si leggono sempre dal testo vigente su Normattiva.</p>
       </section>
 
+      <section id="indagini-panel" class="panel" role="tabpanel" aria-labelledby="tab-indagini" hidden>
+        <label for="indagini-filter" class="sr-only">Cerca atto o reato</label>
+        <input id="indagini-filter" type="search" placeholder="Cerca atto, reato o articolo (es. querela, 380)"
+               autocomplete="off" autocapitalize="off" spellcheck="false">
+        <div id="indagini-detail" class="card scheda" hidden></div>
+        <div id="indagini-list" class="schede-gruppi"></div>
+        <p class="hint">Pene, termini e procedibilità si leggono sempre dal testo vigente su Normattiva.</p>
+      </section>
+
       <form id="scrivi-form" class="composer panel" role="tabpanel" aria-labelledby="tab-scrivi" hidden>
         <label for="scrivi-tipo" class="field-label">Tipo di testo</label>
         <select id="scrivi-tipo">
@@ -88,18 +99,46 @@
             <option value="verbale_violazione_cds">Verbale: descrizione della violazione (CdS)</option>
             <option value="verbale_accertamento">Verbale di accertamento o constatazione</option>
           </optgroup>
+          <optgroup label="Polizia giudiziaria">
+            <option value="verbale_denuncia" data-pg="1">Verbale di ricezione di denuncia o querela</option>
+            <option value="annotazione_pg" data-pg="1">Annotazione di PG / notizia di reato</option>
+            <option value="verbale_sit" data-pg="1">Verbale di sommarie informazioni</option>
+            <option value="verbale_perquisizione" data-pg="1">Verbale di perquisizione e sequestro</option>
+            <option value="verbale_identificazione" data-pg="1">Verbale di identificazione ed elezione di domicilio</option>
+          </optgroup>
         </select>
         <div id="scrivi-dest-wrap" class="composer">
           <label for="scrivi-dest" class="field-label">Destinatario (facoltativo)</label>
           <input id="scrivi-dest" maxlength="300" autocomplete="off" placeholder="Es. Ufficio tecnico del Comune di [DA COMPLETARE]">
         </div>
+        <div id="scrivi-pg-avviso" class="avviso" role="note" hidden>
+          Il testo viene inviato a un servizio di intelligenza artificiale esterno. Non scrivere nomi, indirizzi,
+          date di nascita o particolari che permettano di riconoscere le persone: usa segnaposto come
+          [DENUNCIANTE], [INDAGATO], [LUOGO]. L'invio viene bloccato se il testo sembra contenere dati personali.
+        </div>
         <label for="scrivi-istruzioni" class="field-label">Cosa deve dire</label>
         <textarea id="scrivi-istruzioni" rows="5" maxlength="4000" required
                   placeholder="Es. chiedere copia della planimetria dell'incrocio tra via [NOME VIA] e via [NOME VIA] per un incidente del [DATA]"></textarea>
-        <p class="hint">Scrivi nomi e indirizzi come [NOME], [INDIRIZZO] e completali dopo. Targhe, codici fiscali, telefoni, email e IBAN vengono mascherati prima dell'invio e rimessi nel testo sul tuo dispositivo.</p>
+        <p id="scrivi-hint" class="hint">Scrivi nomi e indirizzi come [NOME], [INDIRIZZO] e completali dopo. Targhe, codici fiscali, telefoni, email e IBAN vengono mascherati prima dell'invio e rimessi nel testo sul tuo dispositivo.</p>
         <p id="scrivi-mask-info" class="hint mask-info" hidden></p>
+        <div id="scrivi-guard" class="guard" aria-live="polite" hidden></div>
         <button id="scrivi-submit" type="submit" class="btn primary">Genera</button>
       </form>
+
+      <section id="pausa-panel" class="panel" role="tabpanel" aria-labelledby="tab-pausa" hidden>
+        <div class="segmented" role="group" aria-label="Scegli il gioco">
+          <button type="button" class="seg active" data-gioco="gomitoli" aria-pressed="true">Gomitoli</button>
+          <button type="button" class="seg" data-gioco="blocco" aria-pressed="false">Posto di blocco</button>
+        </div>
+        <div class="game-hud" aria-live="off">
+          <span id="game-score">0</span><span id="game-mult"></span><span id="game-lives"></span>
+        </div>
+        <div class="game-wrap">
+          <canvas id="game-canvas" aria-label="Area di gioco"></canvas>
+          <div id="game-overlay" class="game-overlay"></div>
+        </div>
+        <p id="game-squadra" class="game-squadra" hidden></p>
+      </section>
 
       <section id="result" class="card result" hidden aria-live="polite"></section>
 
@@ -118,7 +157,13 @@
 
   <script src="config.js"></script>
   <script src="mask.js"></script>
+  <script src="guard.js"></script>
   <script src="strada.js"></script>
+  <script src="indagini.js"></script>
+  <script src="games/core.js"></script>
+  <script src="games/cat.js"></script>
+  <script src="games/blocco.js"></script>
+  <script src="games/pausa.js"></script>
   <script src="panels.js"></script>
   <script src="app.js"></script>
 </body>

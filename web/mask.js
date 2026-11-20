@@ -79,6 +79,25 @@
     return { masked: out, map, counts };
   }
 
+  // Individua i dati senza sostituirli: [{ kind, value, start, end }] ordinati per start.
+  // Usa le stesse RULES di mask(); start/end escludono il prefisso di contesto (gruppo 1).
+  // Sovrapposizioni: vince la regola più in alto nell'elenco (come in mask()).
+  function find(text) {
+    const src = String(text || "");
+    const found = [];
+    for (const rule of RULES) {
+      for (const m of src.matchAll(rule.re)) {
+        const value = m[2];
+        if (rule.valid && !rule.valid(value)) continue;
+        const start = m.index + m[1].length;
+        const end = start + value.length;
+        if (found.some((f) => start < f.end && end > f.start)) continue;
+        found.push({ kind: rule.kind, value, start, end });
+      }
+    }
+    return found.sort((a, b) => a.start - b.start);
+  }
+
   function escapeHtml(s) {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
@@ -103,7 +122,7 @@
     return parts.length ? "Mascherati: " + parts.join(", ") : "";
   }
 
-  const api = { mask, unmask, summary };
+  const api = { mask, unmask, summary, find };
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.LexMask = api;
 })(typeof window !== "undefined" ? window : globalThis);

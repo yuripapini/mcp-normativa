@@ -73,3 +73,22 @@ def test_finalize_no_duplicate_bozza():
 
 def test_clean_text_normalizes_newlines():
     assert clean_text("a\r\nb\rc", 10) == "a\nb\nc"
+
+
+PG = ["verbale_denuncia", "annotazione_pg", "verbale_sit", "verbale_perquisizione", "verbale_identificazione"]
+
+
+def test_tipi_pg():
+    for tipo in PG:
+        t = TIPI[tipo]
+        assert t.pg and t.bozza and t.verbale and not t.mail, tipo
+        _, testo = finalize(tipo, "OGGETTO: X\n---\nCorpo")
+        assert testo.startswith(BOZZA_PREFIX) and testo.endswith(PROMEMORIA_VERBALE)
+    assert not any(TIPI[k].pg for k in TIPI if k not in PG)
+
+
+def test_prompt_copre_tipi_pg():
+    prompt = (PROMPTS_DIR / "scrivi.md").read_text(encoding="utf-8")
+    for tipo in PG:
+        assert TIPI[tipo].label in prompt, tipo
+    assert "[DENUNCIANTE]" in prompt and "[INDAGATO]" in prompt

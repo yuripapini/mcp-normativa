@@ -2,7 +2,7 @@
 // Esecuzione: node --test tests/js/*.test.cjs
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { mask, unmask, summary } = require("../../web/mask.js");
+const { mask, unmask, summary, find } = require("../../web/mask.js");
 
 test("targhe auto e moto, anche minuscole", () => {
   const r = mask("Fermato AB123CD, poi ab123cd e AB 123 CD; moto XY12345.");
@@ -88,4 +88,15 @@ test("email: nessun backtracking quadratico", () => {
 test("sorgente senza lookbehind", () => {
   const src = require("node:fs").readFileSync(require("node:path").join(__dirname, "../../web/mask.js"), "utf8");
   assert.ok(!src.includes("(?<"));
+});
+
+test("find: posizioni dei valori senza il prefisso di contesto, senza sostituire", () => {
+  const t = "tel 333 1234567 e AB123CD, mail a.b@x.it";
+  const f = find(t);
+  assert.deepEqual(
+    f.map((x) => x.kind + ":" + x.value),
+    ["TEL:333 1234567", "TARGA:AB123CD", "EMAIL:a.b@x.it"],
+  );
+  for (const x of f) assert.equal(t.slice(x.start, x.end), x.value);
+  assert.deepEqual(find("art. 186 del 30/04/1992 alle 10:30"), []);
 });

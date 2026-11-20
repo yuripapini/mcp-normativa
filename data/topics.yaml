@@ -87,3 +87,59 @@ topics:
     atti:
       - nome: Codice civile
         citazione: "regio decreto 16 marzo 1942, n. 262"
+
+  - id: diritto-penale
+    nome: Diritto penale
+    sinonimi: [codice penale, reato, reati, furto, rapina, lesioni, percosse, truffa, danneggiamento, querela, furti, rapine, truffe, minaccia, minacce, resistenza a pubblico ufficiale, merce ricettata, beni ricettati]
+    atti:
+      - nome: Codice penale
+        citazione: "regio decreto 19 ottobre 1930, n. 1398"
+
+  - id: procedura-penale
+    nome: Procedura penale
+    sinonimi: [codice di procedura penale, denuncia, arresto, flagranza, fermo di indiziato, perquisizione, sequestro, notizia di reato, indagini preliminari, sommarie informazioni, elezione di domicilio]
+    atti:
+      - nome: Codice di procedura penale
+        citazione: "decreto del presidente della repubblica 22 settembre 1988, n. 447"
+
+  - id: illeciti-amministrativi
+    nome: Illeciti e sanzioni amministrative
+    sinonimi: [sanzione amministrativa, sanzioni amministrative, illecito amministrativo, ordinanza ingiunzione, legge 689, contestazione della violazione]
+    atti:
+      - nome: Modifiche al sistema penale (sanzioni amministrative)
+        citazione: "legge 24 novembre 1981, n. 689"
+
+  - id: pubblica-sicurezza
+    nome: Pubblica sicurezza
+    sinonimi: [tulps, pubblica sicurezza, licenza di polizia, autorizzazione di polizia, esercizi pubblici]
+    atti:
+      - nome: Testo unico delle leggi di pubblica sicurezza
+        citazione: "regio decreto 18 giugno 1931, n. 773"
+
+  - id: stupefacenti
+    nome: Stupefacenti
+    sinonimi: [stupefacenti, droga, spaccio, detenzione per uso personale, segnalazione al prefetto, segnalazione prefetto, hashish, cocaina, cannabis, marijuana]
+    atti:
+      - nome: Testo unico in materia di stupefacenti
+        citazione: "decreto del presidente della repubblica 9 ottobre 1990, n. 309"
+
+  - id: immigrazione
+    nome: Immigrazione
+    sinonimi: [permesso di soggiorno, espulsione, straniero irregolare, immigrazione, clandestino]
+    atti:
+      - nome: Testo unico sull'immigrazione
+        citazione: "decreto legislativo 25 luglio 1998, n. 286"
+
+  - id: armi
+    nome: Armi
+    sinonimi: [porto d armi, armi, coltello, oggetti atti a offendere, porto abusivo, munizioni]
+    atti:
+      - nome: Controllo delle armi, delle munizioni e degli esplosivi
+        citazione: "legge 18 aprile 1975, n. 110"
+
+  - id: codice-rosso
+    nome: Violenza domestica e di genere (Codice rosso)
+    sinonimi: [codice rosso, violenza domestica, violenza di genere, maltrattamenti in famiglia, maltrattamenti, atti persecutori, stalking, revenge porn]
+    atti:
+      - nome: Tutela delle vittime di violenza domestica e di genere
+        citazione: "legge 19 luglio 2019, n. 69"

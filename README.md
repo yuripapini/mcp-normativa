@@ -55,11 +55,12 @@ rete e senza `MCP_AUTH_TOKEN`. È la modalità usata dal blueprint `render.yaml`
 | Bot | `app/scrivi.py` | Tipi di testo di Scrivi, separazione oggetto/testo, avviso BOZZA e promemoria |
 | Bot | `app/web_features.py` | Testo vigente, riassunto (con cache 24 h) e Scrivi per la web app |
 | Bot | `app/web_api.py` | API della web app (`/api/*`), codice di accesso e rate limit |
-| Web | `web/` | Static Site: `app.js` (schede, storico), `panels.js` (Strada, Scrivi), `strada.js` (dati schede), `mask.js` (mascheramento dati personali) |
+| Web | `web/` | Static Site: `app.js` (schede, storico), `panels.js` (Strada, Indagini, Scrivi), `strada.js` e `indagini.js` (dati delle schede), `mask.js` (mascheramento dati personali), `guard.js` (blocco dei dati personali nei modelli PG) |
+| Web | `web/games/` | Scheda Pausa: `core.js` (logica pura dei giochi), `cat.js` e `blocco.js` (disegno e input), `pausa.js` (selettore, ciclo, fine partita, condivisione) |
 | MCP | `mcp_server/server.py` | Server FastMCP con i 5 tool |
 | MCP | `mcp_server/normattiva.py` | Client dell'API Normattiva (retry/backoff) e parsing di URN, ELI e citazioni |
 | MCP | `mcp_server/discovery.py` | Adapter Lexifina opzionale (disattivato di default) |
-| Dati | `data/*.yaml` | Indice tematico (solo citazioni), fonti, query di prova. Nessun testo di legge |
+| Dati | `data/*.yaml` | Indice tematico (solo citazioni; comprende codice penale, procedura penale, l. 689/1981, TULPS, stupefacenti, immigrazione, armi, codice rosso), fonti, query di prova. Nessun testo di legge |
 
 ### Tool MCP
 
@@ -173,7 +174,7 @@ docker run --rm --env-file .env -p 8000:8000 lexbot
 ```bash
 .venv/bin/ruff check . && .venv/bin/ruff format --check .
 .venv/bin/pytest -q
-node --test tests/js/*.test.cjs   # mascheramento dei dati personali (web/mask.js)
+node --test tests/js/*.test.cjs   # mascheramento e blocco dei dati personali, logica dei giochi
 .venv/bin/pytest -m live         # facoltativo: verifica su Normattiva reale gli articoli delle schede Strada
 ```
 
@@ -195,9 +196,13 @@ server MCP viene provato in memoria con `fastmcp.Client`. Coprono:
 - suddivisione dei messaggi ed escaping HTML;
 - ciclo LLM e comando `/verifica` (con suggerimenti del tipo di atto);
 - API web (`/api/articolo`, `/api/riassumi`, `/api/scrivi`), cache dei riassunti, testi di Scrivi;
-- dati delle schede Strada (struttura, nessun importo o punto scritto a mano).
+- dati delle schede Strada e Indagini (struttura, nessun importo o punto scritto a mano, link agli articoli);
+- indice tematico (temi penali e leggi speciali, sinonimi positivi e negativi);
+- tipi di Scrivi per la polizia giudiziaria;
+- in node: mascheramento (`mask.js`), rilevamento e sostituzione dei dati personali (`guard.js`), logica dei
+  giochi (`games/core.js`).
 
-La CI GitHub (`.github/workflows/ci.yml`) esegue ruff, pytest e i test node del mascheramento a ogni push su `main` e a ogni pull request.
+La CI GitHub (`.github/workflows/ci.yml`) esegue ruff, pytest e i test node a ogni push su `main` e a ogni pull request.
 Le domande in `data/test_queries.yaml` servono per i test manuali end-to-end.
 
 ## Deploy su Render
@@ -267,14 +272,57 @@ Tutte richiedono l'header `X-Access-Code` uguale a `WEB_ACCESS_CODE`; rispondono
 (HTML generato dal server: testo escapato, solo tag `b`/`i`/`code`/`a` con link http/https).
 `/api/verifica` aggiunge `suggerimenti` quando il riferimento è solo numero/anno (es. `285/1992`).
 
-La pagina ha quattro schede:
+La pagina ha sei schede:
 
 - **Domanda** e **Verifica**: come il bot Telegram;
 - **Strada**: 16 schede di infrazioni frequenti del Codice della strada con cosa controllare e cosa
   annotare; "Testo vigente" legge l'articolo da Normattiva senza IA, "Riassumi" usa l'IA solo su
   richiesta, "Prepara verbale" apre Scrivi già compilato;
-- **Scrivi**: bozze di mail d'ufficio, relazioni di servizio, descrizioni del fatto e verbali, sempre
-  con l'avviso BOZZA e il promemoria di controllo sul modulo ufficiale.
+- **Indagini**: 36 schede rapide in 7 gruppi (denuncia e querela, notizia di reato, identificazione,
+  perquisizioni e sequestri, arresto e fermo, leggi speciali, reati frequenti del codice penale) con
+  riferimenti, cosa fare e cosa annotare; "Prepara atto" apre Scrivi con il modello PG adatto;
+- **Scrivi**: bozze di mail d'ufficio, relazioni di servizio, descrizioni del fatto, verbali e 5 modelli
+  di polizia giudiziaria, sempre con l'avviso BOZZA e il promemoria di controllo sul modulo ufficiale;
+- **Pausa**: due giochi brevi (vedi sotto). Le partite non finiscono nello Storico.
+
+### Scheda Indagini e codice penale
+
+Il codice penale (R.D. 1398/1930), come il codice civile, non restituisce gli articoli tramite l'API
+`dettaglio-atto` di Normattiva. Per questo le schede sui reati del codice penale hanno solo **"Apri su
+Normattiva"** (niente testo vigente né Riassumi). Il link apre l'articolo giusto grazie al suffisso
+dell'allegato nell'URN (`...1930-10-19;1398:1~art612bis` per il c.p., `...1942-03-16;262:2~art2043` per il
+c.c.): la stessa correzione vale per i link nelle risposte di Domanda e del bot Telegram. Codice di
+procedura penale e leggi speciali invece si leggono anche con "Testo vigente".
+
+### Modelli di polizia giudiziaria
+
+Cinque tipi in Scrivi: ricezione di denuncia o querela, annotazione di PG / notizia di reato, sommarie
+informazioni, perquisizione e sequestro, identificazione ed elezione di domicilio.
+
+- Un avviso fisso ricorda che il testo va a un servizio di IA esterno e chiede segnaposto come
+  `[DENUNCIANTE]`, `[INDAGATO]`, `[LUOGO]`.
+- Prima dell'invio `guard.js` cerca nel testo nomi e cognomi, date di nascita, indirizzi, oltre ai dati
+  già mascherati da `mask.js`. Se trova qualcosa **blocca l'invio** e mostra l'elenco: "Sostituisci"
+  (segnaposto numerato, es. `[PERSONA_1]`), "Non è un dato personale" (falso allarme) o "Sostituisci
+  tutti". I valori veri restano solo nella memoria del browser e vengono rimessi nel testo ricevuto;
+  lo Storico salva la versione con i segnaposto.
+- **Limiti**: il controllo riconosce solo dati con una forma tipica (nome e cognome con iniziale
+  maiuscola, date, "via/piazza ... numero", ecc.). Un soprannome, un luogo descritto a parole o un
+  particolare che identifica la persona non vengono riconosciuti: la responsabilità di non inserirli
+  resta di chi scrive. Lo stesso nome scritto con maiuscole diverse ("Mario Rossi", "MARIO ROSSI")
+  riceve un solo segnaposto e torna nella forma della prima occorrenza.
+
+### Pausa
+
+Due giochi su `<canvas>`, interamente nel browser (nessuna chiamata al server):
+
+- **Gomitoli**: si trascina il gatto per prendere i gomitoli ed evitare i cetrioli; tre vite.
+- **Posto di blocco**: passano auto, moto, pedoni e animali; si fermano con un tocco solo quelli in
+  infrazione (cintura, telefono, casco, fanale...), con varianti comiche e animali da adottare nella
+  "squadra". A fine partita l'elenco delle infrazioni fermate porta alla scheda Strada dell'articolo.
+
+Il record di ogni gioco resta solo sul dispositivo (`localStorage`). "Condividi" usa la condivisione del
+telefono e, se non disponibile, WhatsApp. La partita va in pausa cambiando scheda o uscendo dall'app.
 
 Per risparmiare richieste al provider LLM (limite giornaliero dei modelli `:free`), i riassunti riusciti
 restano in memoria per 24 ore (massimo 200 voci) per legge e articolo: lo stesso articolo riassunto più
@@ -369,8 +417,9 @@ Il testo è indicativo: la formulazione esatta dipende dal modello e dai dati re
   segnato come non verificato.
 - La ricerca testuale Normattiva ordina per data, non per pertinenza. Per questo hanno priorità le
   citazioni e l'indice tematico, e l'LLM deve scartare i risultati non attinenti.
-- Alcuni codici con struttura particolare (es. art. 2043 del codice civile, R.D. 262/1942) non sono
-  raggiungibili con l'API sincrona. Il tool restituisce `trovato: false` con il link ufficiale N2Ls.
+- Alcuni codici con struttura particolare (codice civile R.D. 262/1942, codice penale R.D. 1398/1930)
+  non sono raggiungibili con l'API sincrona. Il tool restituisce `trovato: false` con il link ufficiale
+  N2Ls, che apre direttamente l'articolo nell'allegato del codice.
 - Anti-abuso:
   - allowlist obbligatoria;
   - 10 richieste ogni 5 minuti per utente;
