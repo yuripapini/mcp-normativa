@@ -16,7 +16,8 @@ from app.models import AnswerResult, ChatMessage, LLMResult, ToolCall, ToolSpec
 
 log = structlog.get_logger("llm")
 
-PROMPT_PATH = Path(__file__).parent / "prompts" / "system_prompt.md"
+PROMPTS_DIR = Path(__file__).parent / "prompts"
+PROMPT_PATH = PROMPTS_DIR / "system_prompt.md"
 
 NO_RESULT_MESSAGE = (
     "Non sono riuscito a verificare una norma pertinente sulle fonti ufficiali. "
@@ -211,10 +212,14 @@ async def answer_question(
     system_prompt: str,
     max_rounds: int = 6,
     llm_timeout: float = 30.0,
+    require_tools: bool = True,
+    postprocess: bool = True,
 ) -> AnswerResult:
-    """Ciclo agentico: l'LLM deve usare i tool MCP prima di rispondere.
+    """Ciclo agentico con i tool MCP.
 
-    Al primo turno il tool calling è obbligatorio (tool_choice="required").
+    `require_tools`: al primo turno il tool calling è obbligatorio (tool_choice="required").
+    `postprocess`: aggiunge link verificati e disclaimer (risposte di ricerca); False per testi
+    da copiare (Scrivi), restituiti così come li produce l'LLM.
     """
     tools = await session.list_tools()
     messages = [
@@ -225,12 +230,15 @@ async def answer_question(
     verified: list[str] = []  # link Normattiva presenti nei risultati dei tool
 
     def _final(content: str | None, rounds: int) -> AnswerResult:
-        text = (content or "").strip() or NO_RESULT_MESSAGE
+        text = (content or "").strip()
+        if not postprocess:
+            return AnswerResult(text=text, tools_used=used, rounds=rounds)
+        text = text or NO_RESULT_MESSAGE
         text = ensure_verified_link(text, verified)
         return AnswerResult(text=ensure_disclaimer(text), tools_used=used, rounds=rounds)
 
     for round_no in range(1, max_rounds + 1):
-        choice = "required" if round_no == 1 else "auto"
+        choice = "required" if round_no == 1 and require_tools else "auto"
         result = await asyncio.wait_for(
             provider.complete(messages, tools, tool_choice=choice), timeout=llm_timeout
         )

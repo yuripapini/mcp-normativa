@@ -46,16 +46,59 @@
 
     <main class="content">
       <div class="tabs" role="tablist">
-        <button class="tab active" role="tab" aria-selected="true" data-mode="ask" type="button">Domanda</button>
-        <button class="tab" role="tab" aria-selected="false" data-mode="verifica" type="button">Verifica norma</button>
+        <button class="tab active" role="tab" aria-selected="true" id="tab-ask" aria-controls="query-form" data-mode="ask" type="button">Domanda</button>
+        <button class="tab" role="tab" aria-selected="false" id="tab-verifica" aria-controls="query-form" data-mode="verifica" type="button">Verifica</button>
+        <button class="tab" role="tab" aria-selected="false" id="tab-strada" aria-controls="strada-panel" data-mode="strada" type="button">Strada</button>
+        <button class="tab" role="tab" aria-selected="false" id="tab-scrivi" aria-controls="scrivi-form" data-mode="scrivi" type="button">Scrivi</button>
       </div>
 
-      <form id="query-form" class="composer">
+      <form id="query-form" class="composer" role="tabpanel" aria-labelledby="tab-ask tab-verifica">
         <label for="query" class="sr-only">Testo della richiesta</label>
         <textarea id="query" rows="3" required
                   placeholder="Es. Art. 186 d.lgs. 285/1992: sanzioni per guida in stato di ebbrezza"></textarea>
         <p id="mode-hint" class="hint">Risposta con IA e fonti Normattiva (10-30 secondi).</p>
+        <p id="ask-mask-info" class="hint mask-info" hidden></p>
         <button id="submit" type="submit" class="btn primary">Chiedi</button>
+      </form>
+
+      <section id="strada-panel" class="panel" role="tabpanel" aria-labelledby="tab-strada" hidden>
+        <label for="strada-filter" class="sr-only">Cerca infrazione</label>
+        <input id="strada-filter" type="search" placeholder="Cerca infrazione o articolo (es. cinture, 186)"
+               autocomplete="off" autocapitalize="off" spellcheck="false">
+        <div id="strada-detail" class="card scheda" hidden></div>
+        <ul id="strada-list" class="strada-list"></ul>
+        <p class="hint">Importi, punti e sanzioni accessorie si leggono sempre dal testo vigente su Normattiva.</p>
+      </section>
+
+      <form id="scrivi-form" class="composer panel" role="tabpanel" aria-labelledby="tab-scrivi" hidden>
+        <label for="scrivi-tipo" class="field-label">Tipo di testo</label>
+        <select id="scrivi-tipo">
+          <optgroup label="Mail">
+            <option value="mail_richiesta">Richiesta a ufficio o ente</option>
+            <option value="mail_trasmissione">Trasmissione di atti o documenti</option>
+            <option value="mail_sollecito">Sollecito</option>
+            <option value="mail_risposta_cittadino">Risposta a un cittadino</option>
+            <option value="mail_generica">Comunicazione generica</option>
+          </optgroup>
+          <optgroup label="Relazioni e descrizioni">
+            <option value="relazione_servizio">Relazione di servizio</option>
+            <option value="descrizione_fatto">Descrizione del fatto</option>
+          </optgroup>
+          <optgroup label="Verbali">
+            <option value="verbale_violazione_cds">Verbale: descrizione della violazione (CdS)</option>
+            <option value="verbale_accertamento">Verbale di accertamento o constatazione</option>
+          </optgroup>
+        </select>
+        <div id="scrivi-dest-wrap" class="composer">
+          <label for="scrivi-dest" class="field-label">Destinatario (facoltativo)</label>
+          <input id="scrivi-dest" maxlength="300" autocomplete="off" placeholder="Es. Ufficio tecnico del Comune di [DA COMPLETARE]">
+        </div>
+        <label for="scrivi-istruzioni" class="field-label">Cosa deve dire</label>
+        <textarea id="scrivi-istruzioni" rows="5" maxlength="4000" required
+                  placeholder="Es. chiedere copia della planimetria dell'incrocio tra via [NOME VIA] e via [NOME VIA] per un incidente del [DATA]"></textarea>
+        <p class="hint">Scrivi nomi e indirizzi come [NOME], [INDIRIZZO] e completali dopo. Targhe, codici fiscali, telefoni, email e IBAN vengono mascherati prima dell'invio e rimessi nel testo sul tuo dispositivo.</p>
+        <p id="scrivi-mask-info" class="hint mask-info" hidden></p>
+        <button id="scrivi-submit" type="submit" class="btn primary">Genera</button>
       </form>
 
       <section id="result" class="card result" hidden aria-live="polite"></section>
@@ -70,10 +113,13 @@
       </section>
     </main>
 
-    <footer class="footer">Strumento di ricerca, non consulenza legale. Verifica sempre il testo su Normattiva.</footer>
+    <footer class="footer">Strumento di ricerca a cura di Yuri Papini, a scopo di prova. Non è consulenza legale: verifica sempre il testo su Normattiva.</footer>
   </div>
 
   <script src="config.js"></script>
+  <script src="mask.js"></script>
+  <script src="strada.js"></script>
+  <script src="panels.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

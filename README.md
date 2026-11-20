@@ -50,6 +50,12 @@ rete e senza `MCP_AUTH_TOKEN`. È la modalità usata dal blueprint `render.yaml`
 | Bot | `app/guardrails.py` | Allowlist, rate limit, disclaimer, suddivisione dei messaggi oltre 4096 caratteri, HTML sicuro |
 | Bot | `app/mcp_client.py` | Client FastMCP con timeout e risultati troncati a 12.000 caratteri |
 | Bot | `app/prompts/system_prompt.md` | Prompt di sistema versionato |
+| Bot | `app/prompts/riassumi.md`, `app/prompts/scrivi.md` | Prompt di Riassumi (scheda Strada) e Scrivi |
+| Bot | `app/law_suggest.py` | Suggerimenti del tipo di atto per `/verifica` con solo numero/anno |
+| Bot | `app/scrivi.py` | Tipi di testo di Scrivi, separazione oggetto/testo, avviso BOZZA e promemoria |
+| Bot | `app/web_features.py` | Testo vigente, riassunto (con cache 24 h) e Scrivi per la web app |
+| Bot | `app/web_api.py` | API della web app (`/api/*`), codice di accesso e rate limit |
+| Web | `web/` | Static Site: `app.js` (schede, storico), `panels.js` (Strada, Scrivi), `strada.js` (dati schede), `mask.js` (mascheramento dati personali) |
 | MCP | `mcp_server/server.py` | Server FastMCP con i 5 tool |
 | MCP | `mcp_server/normattiva.py` | Client dell'API Normattiva (retry/backoff) e parsing di URN, ELI e citazioni |
 | MCP | `mcp_server/discovery.py` | Adapter Lexifina opzionale (disattivato di default) |
@@ -167,7 +173,11 @@ docker run --rm --env-file .env -p 8000:8000 lexbot
 ```bash
 .venv/bin/ruff check . && .venv/bin/ruff format --check .
 .venv/bin/pytest -q
+node --test tests/js/*.test.cjs   # mascheramento dei dati personali (web/mask.js)
+.venv/bin/pytest -m live         # facoltativo: verifica su Normattiva reale gli articoli delle schede Strada
 ```
+
+I test `live` usano la rete e sono esclusi di default.
 
 I test non fanno chiamate di rete: `respx` intercetta Normattiva, Lexifina e il provider LLM, mentre il
 server MCP viene provato in memoria con `fastmcp.Client`. Coprono:
@@ -183,9 +193,11 @@ server MCP viene provato in memoria con `fastmcp.Client`. Coprono:
 - i 5 tool, anche tramite `fastmcp.Client`;
 - presenza del link Normattiva in ogni risposta e coerenza del blueprint Render con il codice;
 - suddivisione dei messaggi ed escaping HTML;
-- ciclo LLM e comando `/verifica`.
+- ciclo LLM e comando `/verifica` (con suggerimenti del tipo di atto);
+- API web (`/api/articolo`, `/api/riassumi`, `/api/scrivi`), cache dei riassunti, testi di Scrivi;
+- dati delle schede Strada (struttura, nessun importo o punto scritto a mano).
 
-La CI GitHub (`.github/workflows/ci.yml`) esegue ruff e pytest a ogni push su `main` e a ogni pull request.
+La CI GitHub (`.github/workflows/ci.yml`) esegue ruff, pytest e i test node del mascheramento a ogni push su `main` e a ogni pull request.
 Le domande in `data/test_queries.yaml` servono per i test manuali end-to-end.
 
 ## Deploy su Render
@@ -247,9 +259,31 @@ La cartella `web/` contiene una pagina HTML/CSS/JS senza dipendenze che usa le A
 | `POST /api/accesso` | nessuno | verifica il codice di accesso |
 | `POST /api/ask` | `{"question": "..."}` | domanda libera (LLM + tool MCP) |
 | `POST /api/verifica` | `{"law_id": "..."}` | come `/verifica`, senza IA |
+| `POST /api/articolo` | `{"law_id", "article"}` | testo vigente di un articolo, senza IA (scheda Strada) |
+| `POST /api/riassumi` | `{"law_id", "article"}` | riassunto IA di sanzioni, punti e accessorie dal testo vigente |
+| `POST /api/scrivi` | `{"tipo", "destinatario", "istruzioni"}` | bozza di mail, relazione o verbale -> `{"oggetto", "testo", "html"}` |
 
 Tutte richiedono l'header `X-Access-Code` uguale a `WEB_ACCESS_CODE`; rispondono `{"text", "html"}`
 (HTML generato dal server: testo escapato, solo tag `b`/`i`/`code`/`a` con link http/https).
+`/api/verifica` aggiunge `suggerimenti` quando il riferimento è solo numero/anno (es. `285/1992`).
+
+La pagina ha quattro schede:
+
+- **Domanda** e **Verifica**: come il bot Telegram;
+- **Strada**: 16 schede di infrazioni frequenti del Codice della strada con cosa controllare e cosa
+  annotare; "Testo vigente" legge l'articolo da Normattiva senza IA, "Riassumi" usa l'IA solo su
+  richiesta, "Prepara verbale" apre Scrivi già compilato;
+- **Scrivi**: bozze di mail d'ufficio, relazioni di servizio, descrizioni del fatto e verbali, sempre
+  con l'avviso BOZZA e il promemoria di controllo sul modulo ufficiale.
+
+Per risparmiare richieste al provider LLM (limite giornaliero dei modelli `:free`), i riassunti riusciti
+restano in memoria per 24 ore (massimo 200 voci) per legge e articolo: lo stesso articolo riassunto più
+volte costa una sola richiesta. La cache si svuota al riavvio del servizio.
+
+**Dati personali**: prima dell'invio, la pagina sostituisce targhe, codici fiscali, telefoni, email e IBAN
+con segnaposto (`[TARGA_1]`, ...) e li rimette nel testo ricevuto; la corrispondenza resta solo in memoria
+nel browser e lo storico salva la versione mascherata. Nomi e indirizzi vanno scritti come `[NOME]`,
+`[INDIRIZZO]`.
 Codice errato: 401. `WEB_ACCESS_CODE` vuota: 403 (API disattivate). Limite di richieste per IP con gli
 stessi parametri di Telegram: 429. Lo storico resta solo nel browser (`localStorage`, ultime 50 voci).
 

@@ -11,6 +11,7 @@ import contextlib
 import json
 import time
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 import structlog
@@ -31,6 +32,7 @@ from app.guardrails import (
     render_for_telegram,
     sanitize_query,
 )
+from app.law_suggest import is_number_only, parse_number_year, suggest_law_ids
 from app.llm import (
     RETRYABLE_STATUS,
     LLMError,
@@ -94,6 +96,28 @@ LLM_ERROR = (
     "Riprova tra poco; nel frattempo /verifica funziona senza IA."
 )
 TIMEOUT_ERROR = "La ricerca ha richiesto troppo tempo. Prova a riformulare la domanda in modo più specifico."
+
+# Testo con cui il server MCP segnala un atto inesistente (mcp_server/server.py, _guard).
+NOT_FOUND_MARKER = "Nessun riferimento verificabile"
+
+VERIFICA_HELP = (
+    "Riferimento non riconosciuto. Indica tipo, numero e anno dell'atto. "
+    "Esempi: `d.lgs. 285/1992`, `legge 241/1990`, `dpr 445/2000`."
+)
+
+
+@dataclass
+class VerificaResult:
+    """Esito di /verifica: testo Markdown e, se ambiguo, citazioni da proporre."""
+
+    text: str
+    suggerimenti: list[str] = field(default_factory=list)
+
+
+def llm_error_message(exc: LLMError) -> str:
+    """Messaggio utente per un errore del provider LLM."""
+    return LLM_BUSY_ERROR if exc.status_code in RETRYABLE_STATUS else LLM_ERROR
+
 
 _STATUS_LABEL = {
     "vigente": "vigente",
@@ -181,9 +205,7 @@ class LexBot:
             return TIMEOUT_ERROR
         except LLMError as exc:
             log.error("llm_error", error=str(exc), status=exc.status_code, **meta)
-            if exc.status_code in RETRYABLE_STATUS:
-                return LLM_BUSY_ERROR
-            return LLM_ERROR
+            return llm_error_message(exc)
         except Exception as exc:  # errori MCP/rete: mai far fallire il webhook
             log.error("question_failed", error_type=type(exc).__name__, **meta)
             return GENERIC_ERROR
@@ -198,32 +220,74 @@ class LexBot:
         return result.text
 
     async def handle_verifica(self, user_id: int, law_id: str) -> str:
-        """/verifica: identificazione, vigenza, data di consultazione e link ufficiali."""
+        """/verifica per Telegram: solo testo."""
+        return (await self.verifica(user_id, law_id)).text
+
+    async def verifica(self, user_id: int, law_id: str) -> VerificaResult:
+        """Identificazione, vigenza, data di consultazione e link ufficiali.
+
+        Con "numero/anno" senza tipo prova i tipi più comuni: se ne trova uno procede,
+        se ne trova più di uno restituisce i suggerimenti.
+        """
         law_id = sanitize_query(law_id, 500)
         if not law_id:
-            return (
+            return VerificaResult(
                 "Uso: /verifica <URN | ELI | URL Normattiva | citazione>\nEsempio: /verifica legge 241/1990"
             )
+        if is_number_only(law_id):
+            return VerificaResult(VERIFICA_HELP)
+        candidates = suggest_law_ids(law_id)
         meta = {"user_id": user_id, **query_fingerprint(law_id)}
+        prefix = ""
+        factor = 4 if candidates else 2
         try:
-            async with asyncio.timeout(self.settings.request_timeout_seconds * 2):
+            async with asyncio.timeout(self.settings.request_timeout_seconds * factor):
                 async with self.mcp.session() as session:
-                    source = json.loads(await session.call_tool("get_official_source", {"law_id": law_id}))
-                    if "errore" in source:
-                        return ensure_normattiva_link(
-                            f"Non è stato possibile identificare la norma: {source['errore']}"
+                    if candidates:
+                        found = []
+                        for cand in candidates:
+                            src = json.loads(await session.call_tool("get_official_source", {"law_id": cand}))
+                            if "errore" not in src:
+                                found.append((cand, src))
+                            elif NOT_FOUND_MARKER not in src["errore"]:
+                                # Errore di rete/timeout di Normattiva: non è "atto inesistente".
+                                log.warning("verifica_candidate_error", candidate=cand, **meta)
+                                return VerificaResult(
+                                    TIMEOUT_ERROR if "non ha risposto" in src["errore"] else GENERIC_ERROR
+                                )
+                        log.info("verifica_candidates", found=len(found), **meta)
+                        if not found:
+                            numero, anno = parse_number_year(law_id) or ("", "")
+                            return VerificaResult(
+                                f"Nessun atto trovato con numero {numero}/{anno}. {VERIFICA_HELP}"
+                            )
+                        if len(found) > 1:
+                            return VerificaResult(format_suggestions(found), [c for c, _ in found])
+                        cand, source = found[0]
+                        prefix = f"Interpretato come **{cand}**.\n\n"
+                    else:
+                        source = json.loads(
+                            await session.call_tool("get_official_source", {"law_id": law_id})
                         )
+                        if "errore" in source:
+                            if "non riconosciuto" in source["errore"].lower():
+                                return VerificaResult(VERIFICA_HELP)
+                            return VerificaResult(
+                                ensure_normattiva_link(
+                                    f"Non è stato possibile identificare la norma: {source['errore']}"
+                                )
+                            )
                     vig = json.loads(
                         await session.call_tool("check_law_vigence", {"law_id": source["law_id"]})
                     )
         except TimeoutError:
             log.warning("verifica_timeout", **meta)
-            return TIMEOUT_ERROR
+            return VerificaResult(TIMEOUT_ERROR)
         except Exception as exc:
             log.error("verifica_failed", error_type=type(exc).__name__, **meta)
-            return GENERIC_ERROR
+            return VerificaResult(GENERIC_ERROR)
         log.info("verifica_done", **meta)
-        return format_verifica(source, vig)
+        return VerificaResult(prefix + format_verifica(source, vig))
 
 
 def format_verifica(source: dict[str, Any], vig: dict[str, Any]) -> str:
@@ -256,6 +320,17 @@ def format_verifica(source: dict[str, Any], vig: dict[str, Any]) -> str:
     lines.append(f"**Data di consultazione**: {source.get('data_consultazione', 'n.d.')}")
     lines.append("")
     lines.append(f"_{DISCLAIMER}_")
+    return "\n".join(lines)
+
+
+def format_suggestions(found: list[tuple[str, dict[str, Any]]]) -> str:
+    """Elenco degli atti trovati per un "numero/anno" ambiguo."""
+    lines = ["Indica il tipo di atto. Trovati:", ""]
+    for cand, src in found:
+        desc = src.get("descrizione_atto") or cand
+        url = src.get("url_normattiva")
+        lines.append(f"- **{cand}** - [{desc}]({url})" if url else f"- **{cand}** - {desc}")
+    lines += ["", f"Ripeti la verifica con il tipo, ad esempio: `{found[0][0]}`."]
     return "\n".join(lines)
 
 

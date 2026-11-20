@@ -130,6 +130,7 @@ def _setup_web(app: FastAPI, settings: Settings, application: Any, web_bot: LexB
     """Prepara LexBot e rate limiter per la web app; stessa istanza del bot Telegram se presente."""
     app.state.web_bot = None
     app.state.web_limiter = None
+    app.state.web_features = None
     if not settings.web_enabled:
         return
     if web_bot is None and application is not None:
@@ -139,6 +140,9 @@ def _setup_web(app: FastAPI, settings: Settings, application: Any, web_bot: LexB
 
         web_bot = LexBot(settings)
     app.state.web_bot = web_bot
+    from app.web_features import WebFeatures
+
+    app.state.web_features = WebFeatures(web_bot)
     app.state.web_limiter = RateLimiter(settings.rate_limit_max_requests, settings.rate_limit_window_seconds)
     log.info("web_enabled", origin=settings.web_origin or None)
 

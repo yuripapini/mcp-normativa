@@ -23,3 +23,5 @@ ignore = ["RUF001", "RUF002", "RUF003"]  # caratteri tipografici italiani nei te
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+markers = ["live: chiamate reali a Normattiva (escluse di default; eseguire con -m live)"]
+addopts = "-m 'not live'"

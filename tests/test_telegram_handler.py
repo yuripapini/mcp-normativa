@@ -483,3 +483,21 @@ def test_build_application_registers_handlers():
         c for handlers in application.handlers.values() for h in handlers for c in getattr(h, "commands", [])
     }
     assert {"start", "aiuto", "help", "fonti", "verifica"} <= commands
+
+
+async def test_answer_question_optional_tools_and_raw_text():
+    provider = FakeProvider([LLMResult(content="OGGETTO: x\n---\nTesto.")])
+    result = await answer_question(
+        "scrivi", provider, FakeSession(), system_prompt="s", require_tools=False, postprocess=False
+    )
+    assert provider.choices == ["auto"]
+    assert result.text == "OGGETTO: x\n---\nTesto."
+    assert g.DISCLAIMER not in result.text
+
+
+async def test_answer_question_raw_empty_stays_empty():
+    provider = FakeProvider([LLMResult(content="  ")])
+    result = await answer_question(
+        "scrivi", provider, FakeSession(), system_prompt="s", require_tools=False, postprocess=False
+    )
+    assert result.text == ""
