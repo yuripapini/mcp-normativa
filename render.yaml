@@ -48,3 +48,8 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      # Web app (Static Site in web/): codice condiviso e URL della Static Site. Facoltative.
+      - key: WEB_ACCESS_CODE
+        sync: false
+      - key: WEB_ALLOWED_ORIGIN
+        sync: false

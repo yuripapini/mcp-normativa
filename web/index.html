@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>LexBot</title>
+  <meta name="description" content="Ricerca sulla legislazione italiana con fonti Normattiva.">
+  <meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="LexBot">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Accesso -->
+  <main id="login" class="screen" hidden>
+    <div class="login-card">
+      <img class="login-icon" src="icons/icon-192.png" alt="" width="72" height="72">
+      <h1>LexBot</h1>
+      <p class="muted">Ricerca sulla legislazione italiana con fonti Normattiva.</p>
+      <form id="login-form" autocomplete="off">
+        <label for="code" class="sr-only">Codice di accesso</label>
+        <input id="code" name="code" type="password" placeholder="Codice di accesso" required
+               autocapitalize="off" autocorrect="off" spellcheck="false">
+        <button type="submit" class="btn primary">Entra</button>
+        <p id="login-error" class="error" role="alert" hidden></p>
+      </form>
+    </div>
+  </main>
+
+  <!-- App -->
+  <div id="app" class="screen" hidden>
+    <header class="topbar">
+      <div class="brand">
+        <img src="icons/icon-192.png" alt="" width="28" height="28">
+        <span>LexBot</span>
+      </div>
+      <button id="logout" class="btn ghost small" type="button">Esci</button>
+    </header>
+
+    <main class="content">
+      <div class="tabs" role="tablist">
+        <button class="tab active" role="tab" aria-selected="true" data-mode="ask" type="button">Domanda</button>
+        <button class="tab" role="tab" aria-selected="false" data-mode="verifica" type="button">Verifica norma</button>
+      </div>
+
+      <form id="query-form" class="composer">
+        <label for="query" class="sr-only">Testo della richiesta</label>
+        <textarea id="query" rows="3" required
+                  placeholder="Es. Art. 186 d.lgs. 285/1992: sanzioni per guida in stato di ebbrezza"></textarea>
+        <p id="mode-hint" class="hint">Risposta con IA e fonti Normattiva (10-30 secondi).</p>
+        <button id="submit" type="submit" class="btn primary">Chiedi</button>
+      </form>
+
+      <section id="result" class="card result" hidden aria-live="polite"></section>
+
+      <section class="history">
+        <div class="history-head">
+          <h2>Storico</h2>
+          <button id="clear-history" class="btn ghost small" type="button" hidden>Cancella</button>
+        </div>
+        <ul id="history-list" class="history-list"></ul>
+        <p id="history-empty" class="muted small-text">Le tue ricerche restano salvate solo su questo dispositivo.</p>
+      </section>
+    </main>
+
+    <footer class="footer">Strumento di ricerca, non consulenza legale. Verifica sempre il testo su Normattiva.</footer>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

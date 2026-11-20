@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     max_query_chars: int = Field(default=2000, ge=50)
     llm_max_tool_rounds: int = Field(default=6, ge=1, le=12)
 
+    # Web app (Static Site): codice di accesso condiviso; vuoto = API web disattivate.
+    web_access_code: str = ""
+    # Origine esatta della Static Site per CORS, es. https://lexbot-web.onrender.com.
+    web_allowed_origin: str = ""
+
     @property
     def allowed_user_ids(self) -> frozenset[int]:
         """Allowlist parsata; valori non numerici vengono ignorati."""
@@ -103,6 +108,16 @@ class Settings(BaseSettings):
     def mcp_inprocess(self) -> bool:
         """True quando MCP_TRANSPORT=inprocess."""
         return self.mcp_transport.strip().lower() == "inprocess"
+
+    @property
+    def web_enabled(self) -> bool:
+        """True quando WEB_ACCESS_CODE è impostato."""
+        return bool(self.web_access_code.strip())
+
+    @property
+    def web_origin(self) -> str:
+        """Origine CORS normalizzata (senza slash finale)."""
+        return self.web_allowed_origin.strip().rstrip("/")
 
     @property
     def is_test(self) -> bool:

@@ -1,4 +1,4 @@
-"""App FastAPI: webhook Telegram e health check.
+"""App FastAPI: webhook Telegram, API della web app e health check.
 
 Avvio: uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
 """
@@ -9,14 +9,20 @@ import asyncio
 import hmac
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from telegram import Update
 from telegram.error import TelegramError
 
 from app.config import Settings, configure_logging, get_settings
+from app.guardrails import RateLimiter
+from app.web_api import build_web_router
+
+if TYPE_CHECKING:
+    from app.telegram_bot import LexBot
 
 log = structlog.get_logger("main")
 
@@ -30,8 +36,12 @@ def verify_secret(received: str | None, expected: str) -> bool:
     return hmac.compare_digest(received.encode(), expected.encode())
 
 
-def create_app(settings: Settings | None = None, processor: UpdateProcessor | None = None) -> FastAPI:
-    """Costruisce l'app. `processor` permette di iniettare un gestore update nei test."""
+def create_app(
+    settings: Settings | None = None,
+    processor: UpdateProcessor | None = None,
+    web_bot: LexBot | None = None,
+) -> FastAPI:
+    """Costruisce l'app. `processor` e `web_bot` permettono di iniettare dipendenze nei test."""
     settings = settings or get_settings()
     configure_logging(settings.log_level)
     tasks: set[asyncio.Task[None]] = set()
@@ -59,6 +69,7 @@ def create_app(settings: Settings | None = None, processor: UpdateProcessor | No
         else:
             log.warning("telegram_disabled", reason="TELEGRAM_BOT_TOKEN mancante")
             app.state.processor = None
+        _setup_web(app, settings, application, web_bot)
         try:
             yield
         finally:
@@ -69,6 +80,15 @@ def create_app(settings: Settings | None = None, processor: UpdateProcessor | No
                 await application.shutdown()
 
     app = FastAPI(title="lexbot-telegram", docs_url=None, redoc_url=None, lifespan=lifespan)
+    if settings.web_origin:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=[settings.web_origin],
+            allow_methods=["POST"],
+            allow_headers=["Content-Type", "X-Access-Code"],
+            max_age=600,
+        )
+    app.include_router(build_web_router(settings))
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -104,6 +124,23 @@ def create_app(settings: Settings | None = None, processor: UpdateProcessor | No
         return {"ok": True}
 
     return app
+
+
+def _setup_web(app: FastAPI, settings: Settings, application: Any, web_bot: LexBot | None) -> None:
+    """Prepara LexBot e rate limiter per la web app; stessa istanza del bot Telegram se presente."""
+    app.state.web_bot = None
+    app.state.web_limiter = None
+    if not settings.web_enabled:
+        return
+    if web_bot is None and application is not None:
+        web_bot = application.bot_data["lex"]
+    if web_bot is None:
+        from app.telegram_bot import LexBot
+
+        web_bot = LexBot(settings)
+    app.state.web_bot = web_bot
+    app.state.web_limiter = RateLimiter(settings.rate_limit_max_requests, settings.rate_limit_window_seconds)
+    log.info("web_enabled", origin=settings.web_origin or None)
 
 
 async def _set_webhook(application: Any, settings: Settings) -> None:

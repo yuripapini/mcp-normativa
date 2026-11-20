@@ -238,6 +238,33 @@ Note:
 - Per ruotare il secret del webhook, rigenera `TELEGRAM_WEBHOOK_SECRET` in dashboard e riavvia: il
   webhook viene registrato di nuovo all'avvio.
 
+## Web app (Static Site)
+
+La cartella `web/` contiene una pagina HTML/CSS/JS senza dipendenze che usa le API del bot:
+
+| Endpoint | Corpo | Uso |
+|---|---|---|
+| `POST /api/accesso` | nessuno | verifica il codice di accesso |
+| `POST /api/ask` | `{"question": "..."}` | domanda libera (LLM + tool MCP) |
+| `POST /api/verifica` | `{"law_id": "..."}` | come `/verifica`, senza IA |
+
+Tutte richiedono l'header `X-Access-Code` uguale a `WEB_ACCESS_CODE`; rispondono `{"text", "html"}`
+(HTML generato dal server: testo escapato, solo tag `b`/`i`/`code`/`a` con link http/https).
+Codice errato: 401. `WEB_ACCESS_CODE` vuota: 403 (API disattivate). Limite di richieste per IP con gli
+stessi parametri di Telegram: 429. Lo storico resta solo nel browser (`localStorage`, ultime 50 voci).
+
+Pubblicazione su Render:
+
+1. **New -> Static Site**, stessa repo: Root Directory `web`, Build Command vuoto, Publish Directory `.`.
+2. Sul Web Service `lexbot-telegram` aggiungi:
+   - `WEB_ACCESS_CODE`: il codice condiviso da dare agli utenti;
+   - `WEB_ALLOWED_ORIGIN`: l'URL della Static Site, es. `https://lexbot-web.onrender.com` (senza `/` finale).
+3. Se il Web Service ha un nome diverso, aggiorna l'URL in `web/config.js`.
+4. Su iPhone: apri la pagina in Safari -> Condividi -> **Aggiungi alla schermata Home**.
+
+Le Static Site non vanno in pausa e non consumano le 750 ore del piano Free; il Web Service sì, quindi
+conviene un ping esterno (es. UptimeRobot) su `/healthz` ogni 5-10 minuti.
+
 ## Allineamento con l'API Normattiva OpenData
 
 Riferimento: "Normattiva - Specifiche API Open Data" (IPZS, rev. 08 del 30/10/2025), verificata anche con

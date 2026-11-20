@@ -7,7 +7,7 @@ import html
 import re
 import time
 from collections import defaultdict, deque
-from collections.abc import Callable
+from collections.abc import Callable, Hashable
 
 DISCLAIMER = "Informazione normativa di supporto, non parere legale."
 TELEGRAM_MAX_CHARS = 4096
@@ -28,7 +28,10 @@ def is_authorized(user_id: int | None, allowed: frozenset[int]) -> bool:
 
 
 class RateLimiter:
-    """Finestra scorrevole in memoria: max `max_requests` ogni `window` secondi per utente."""
+    """Finestra scorrevole in memoria: max `max_requests` ogni `window` secondi per chiave.
+
+    La chiave è l'id utente Telegram o, per la web app, l'IP del client.
+    """
 
     def __init__(
         self,
@@ -39,12 +42,12 @@ class RateLimiter:
         self.max_requests = max_requests
         self.window = window_seconds
         self._clock = clock
-        self._hits: dict[int, deque[float]] = defaultdict(deque)
+        self._hits: dict[Hashable, deque[float]] = defaultdict(deque)
 
-    def allow(self, user_id: int) -> bool:
+    def allow(self, key: Hashable) -> bool:
         """Registra una richiesta e ritorna False se il limite è superato."""
         now = self._clock()
-        hits = self._hits[user_id]
+        hits = self._hits[key]
         while hits and now - hits[0] >= self.window:
             hits.popleft()
         if len(hits) >= self.max_requests:
