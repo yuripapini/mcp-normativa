@@ -31,7 +31,14 @@ from app.guardrails import (
     render_for_telegram,
     sanitize_query,
 )
-from app.llm import LLMError, LLMProvider, answer_question, build_provider, load_system_prompt
+from app.llm import (
+    RETRYABLE_STATUS,
+    LLMError,
+    LLMProvider,
+    answer_question,
+    build_provider,
+    load_system_prompt,
+)
 from app.mcp_client import MCPToolClient
 
 log = structlog.get_logger("telegram")
@@ -78,6 +85,14 @@ I testi Normattiva sono riprodotti con licenza CC BY 4.0; il solo testo ufficial
 _{DISCLAIMER}_"""
 
 GENERIC_ERROR = "Si è verificato un problema temporaneo nel recupero delle fonti. Riprova tra poco."
+LLM_BUSY_ERROR = (
+    "Il servizio di intelligenza artificiale è momentaneamente sovraccarico. "
+    "Riprova tra un minuto; nel frattempo /verifica funziona senza IA."
+)
+LLM_ERROR = (
+    "Il servizio di intelligenza artificiale non ha risposto correttamente. "
+    "Riprova tra poco; nel frattempo /verifica funziona senza IA."
+)
 TIMEOUT_ERROR = "La ricerca ha richiesto troppo tempo. Prova a riformulare la domanda in modo più specifico."
 
 _STATUS_LABEL = {
@@ -165,8 +180,10 @@ class LexBot:
             log.warning("question_timeout", **meta)
             return TIMEOUT_ERROR
         except LLMError as exc:
-            log.error("llm_error", error=str(exc), **meta)
-            return GENERIC_ERROR
+            log.error("llm_error", error=str(exc), status=exc.status_code, **meta)
+            if exc.status_code in RETRYABLE_STATUS:
+                return LLM_BUSY_ERROR
+            return LLM_ERROR
         except Exception as exc:  # errori MCP/rete: mai far fallire il webhook
             log.error("question_failed", error_type=type(exc).__name__, **meta)
             return GENERIC_ERROR

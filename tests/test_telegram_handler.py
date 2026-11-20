@@ -15,7 +15,14 @@ from app.config import Settings
 from app.llm import NO_RESULT_MESSAGE, LLMError, OpenAICompatibleProvider, answer_question
 from app.main import create_app, verify_secret
 from app.models import LLMResult, ToolCall, ToolSpec
-from app.telegram_bot import GENERIC_ERROR, LexBot, format_verifica, send_long_message
+from app.telegram_bot import (
+    GENERIC_ERROR,
+    LLM_BUSY_ERROR,
+    LLM_ERROR,
+    LexBot,
+    format_verifica,
+    send_long_message,
+)
 
 # ------------------------------------------------------------------ webhook ---
 
@@ -265,6 +272,60 @@ async def test_openai_provider_errors(api):
         await p.complete([], [])
 
 
+OPENROUTER_429 = {
+    "error": {
+        "message": "Provider returned error",
+        "code": 429,
+        "metadata": {
+            "raw": "google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortly.",
+            "provider_name": "Google AI Studio",
+        },
+    }
+}
+
+
+async def test_openai_provider_retries_429_then_succeeds(api):
+    route = api.post("https://llm.test/v1/chat/completions")
+    route.side_effect = [
+        httpx.Response(429, json=OPENROUTER_429, headers={"Retry-After": "0"}),
+        httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]}),
+    ]
+    p = OpenAICompatibleProvider("k", "m", base_url="https://llm.test/v1", retry_base=0)
+    res = await p.complete([], [])
+    assert res.content == "ok" and route.call_count == 2
+
+
+async def test_openai_provider_429_exhausted_has_status_and_detail(api):
+    route = api.post("https://llm.test/v1/chat/completions")
+    route.respond(429, json=OPENROUTER_429)
+    p = OpenAICompatibleProvider("k", "m", base_url="https://llm.test/v1", retry_base=0, max_retries=2)
+    with pytest.raises(LLMError) as info:
+        await p.complete([], [])
+    assert route.call_count == 3
+    assert info.value.status_code == 429
+    assert "Google AI Studio" in str(info.value) and "rate-limited upstream" in str(info.value)
+
+
+async def test_openai_provider_does_not_retry_4xx(api):
+    route = api.post("https://llm.test/v1/chat/completions")
+    route.respond(401, json={"error": {"message": "No auth credentials found", "code": 401}})
+    p = OpenAICompatibleProvider("k", "m", base_url="https://llm.test/v1", retry_base=0)
+    with pytest.raises(LLMError) as info:
+        await p.complete([], [])
+    assert route.call_count == 1
+    assert info.value.status_code == 401 and "No auth credentials found" in str(info.value)
+
+
+async def test_openai_provider_error_in_200_body(api):
+    api.post("https://llm.test/v1/chat/completions").respond(
+        200, json={"error": {"message": "upstream failure", "code": 502}}
+    )
+    p = OpenAICompatibleProvider("k", "m", base_url="https://llm.test/v1", retry_base=0, max_retries=0)
+    with pytest.raises(LLMError) as info:
+        await p.complete([], [])
+    assert "upstream failure" in str(info.value)
+
+
 def test_openai_provider_requires_key():
     with pytest.raises(LLMError):
         OpenAICompatibleProvider("", "m")
@@ -312,6 +373,29 @@ async def test_handle_question_too_short():
 async def test_handle_question_mcp_down_is_generic_error():
     bot = make_bot(mcp=FakeMCP(exc=httpx.ConnectError("down")), provider_factory=lambda: FakeProvider([]))
     assert await bot.handle_question(42, "domanda valida") == GENERIC_ERROR
+
+
+class FailingProvider:
+    def __init__(self, exc: Exception) -> None:
+        self.exc = exc
+
+    async def complete(self, messages, tools, *, tool_choice="auto"):
+        raise self.exc
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        (LLMError("Provider LLM HTTP 429", status_code=429), LLM_BUSY_ERROR),
+        (LLMError("Provider LLM HTTP 503", status_code=503), LLM_BUSY_ERROR),
+        (LLMError("Provider LLM HTTP 401", status_code=401), LLM_ERROR),
+        (LLMError("Risposta LLM non valida"), LLM_ERROR),
+    ],
+)
+async def test_handle_question_llm_errors_have_specific_message(exc, expected):
+    bot = make_bot(mcp=FakeMCP(), provider_factory=lambda: FailingProvider(exc))
+    assert await bot.handle_question(42, "domanda valida") == expected
+    assert expected != GENERIC_ERROR
 
 
 async def test_handle_verifica_ok():

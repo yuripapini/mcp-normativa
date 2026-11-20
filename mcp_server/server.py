@@ -548,14 +548,18 @@ async def search_italian_law(query: str, materia: str | None = None, limit: int 
 
 
 @mcp.tool
-async def get_law_article(law_id: str, article: str | None = None) -> ArticleOutput:
+async def get_law_article(law_id: str, article: str | int | None = None) -> ArticleOutput:
     """Recupera il testo vigente di un articolo (es. "13", "13-bis") di un atto.
 
     law_id: id restituito da search_italian_law, URN NIR, URL ELI Normattiva o citazione.
+    article: numero dell'articolo, come stringa ("13-bis") o intero (13).
     """
+    # I modelli spesso passano il numero come intero: lo accettiamo invece di
+    # rifiutare la chiamata e costringere l'LLM a riprovare.
+    art = None if article is None else str(article)
     return await _guard(
         "get_law_article",
-        lambda: get_law_article_impl(ArticleInput(law_id=law_id, article=article)),
+        lambda: get_law_article_impl(ArticleInput(law_id=law_id, article=art)),
         law_id=law_id[:120],
     )
 

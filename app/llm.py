@@ -26,7 +26,45 @@ NO_RESULT_MESSAGE = (
 
 
 class LLMError(Exception):
-    """Errore del provider LLM."""
+    """Errore del provider LLM; `status_code` è il codice HTTP, se presente."""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+# Codici per cui il provider chiede di riprovare (limite di richieste, sovraccarico).
+RETRYABLE_STATUS = frozenset({429, 502, 503})
+MAX_RETRY_DELAY = 10.0
+MAX_ERROR_DETAIL_CHARS = 300
+
+
+def _error_detail(payload: Any) -> str:
+    """Motivo dell'errore dal corpo della risposta (formato OpenAI/OpenRouter).
+
+    Contiene solo il messaggio del provider, mai il testo della domanda.
+    """
+    if not isinstance(payload, dict) or not isinstance(payload.get("error"), dict):
+        return ""
+    err = payload["error"]
+    parts = [str(err.get("message") or "")]
+    meta = err.get("metadata")
+    if isinstance(meta, dict):
+        if meta.get("provider_name"):
+            parts.append(f"provider={meta['provider_name']}")
+        if meta.get("raw"):
+            parts.append(str(meta["raw"]))
+    return " | ".join(p for p in parts if p)[:MAX_ERROR_DETAIL_CHARS]
+
+
+def _retry_delay(resp: httpx.Response, attempt: int, base: float) -> float:
+    """Attesa prima del nuovo tentativo: Retry-After se presente, altrimenti backoff."""
+    header = resp.headers.get("Retry-After", "")
+    try:
+        delay = float(header) if header else base * (2**attempt)
+    except ValueError:
+        delay = base * (2**attempt)
+    return max(0.0, min(delay, MAX_RETRY_DELAY))
 
 
 class LLMProvider(Protocol):
@@ -59,10 +97,14 @@ class OpenAICompatibleProvider:
         base_url: str = "https://api.openai.com/v1",
         timeout: float = 30.0,
         client: httpx.AsyncClient | None = None,
+        max_retries: int = 2,
+        retry_base: float = 2.0,
     ) -> None:
         if not api_key:
             raise LLMError("OPENAI_API_KEY non configurata")
         self.model = model
+        self.max_retries = max_retries
+        self.retry_base = retry_base
         self.url = base_url.rstrip("/") + "/chat/completions"
         self._headers = {"Authorization": f"Bearer {api_key}"}
         self._client = client or httpx.AsyncClient(timeout=timeout)
@@ -109,16 +151,18 @@ class OpenAICompatibleProvider:
                 for t in tools
             ]
             body["tool_choice"] = tool_choice
+        resp = await self._post_with_retry(body)
         try:
-            resp = await self._client.post(self.url, json=body, headers=self._headers)
-        except httpx.HTTPError as exc:
-            raise LLMError(f"Errore di rete verso il provider LLM: {type(exc).__name__}") from exc
-        if resp.status_code != 200:
-            raise LLMError(f"Provider LLM HTTP {resp.status_code}")
-        try:
-            message = resp.json()["choices"][0]["message"]
-        except (ValueError, KeyError, IndexError) as exc:
+            payload = resp.json()
+        except ValueError as exc:
             raise LLMError("Risposta LLM non valida") from exc
+        try:
+            message = payload["choices"][0]["message"]
+        except (TypeError, KeyError, IndexError) as exc:
+            detail = _error_detail(payload)
+            raise LLMError(
+                f"Risposta LLM non valida: {detail}" if detail else "Risposta LLM non valida"
+            ) from exc
         calls = []
         for tc in message.get("tool_calls") or []:
             try:
@@ -127,6 +171,29 @@ class OpenAICompatibleProvider:
                 args = {}
             calls.append(ToolCall(id=tc["id"], name=tc["function"]["name"], arguments=args))
         return LLMResult(content=message.get("content"), tool_calls=calls)
+
+    async def _post_with_retry(self, body: dict[str, Any]) -> httpx.Response:
+        """POST con nuovi tentativi su 429/502/503; gli altri errori HTTP non si ritentano."""
+        for attempt in range(self.max_retries + 1):
+            try:
+                resp = await self._client.post(self.url, json=body, headers=self._headers)
+            except httpx.HTTPError as exc:
+                raise LLMError(f"Errore di rete verso il provider LLM: {type(exc).__name__}") from exc
+            if resp.status_code == 200:
+                return resp
+            try:
+                detail = _error_detail(resp.json())
+            except ValueError:
+                detail = ""
+            message = f"Provider LLM HTTP {resp.status_code}" + (f": {detail}" if detail else "")
+            if resp.status_code not in RETRYABLE_STATUS or attempt == self.max_retries:
+                raise LLMError(message, status_code=resp.status_code)
+            delay = _retry_delay(resp, attempt, self.retry_base)
+            log.warning(
+                "llm_retry", status=resp.status_code, attempt=attempt + 1, delay_s=delay, detail=detail
+            )
+            await asyncio.sleep(delay)
+        raise AssertionError("unreachable")  # pragma: no cover
 
 
 def build_provider(provider: str, model: str, api_key: str, base_url: str, timeout: float) -> LLMProvider:

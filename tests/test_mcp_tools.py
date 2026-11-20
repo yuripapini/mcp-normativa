@@ -230,6 +230,17 @@ async def test_mcp_upstream_error_is_tool_error(client, api):
     assert "Normattiva non ha risposto correttamente" in result.content[0].text
 
 
+async def test_mcp_article_accepts_integer(client, api):
+    """I modelli gratuiti passano spesso article come numero (25 invece di "25")."""
+    route = api.post(URL_DETAIL).respond(200, json=detail_payload())
+    async with Client(server.mcp) as c:
+        result = await c.call_tool("get_law_article", {"law_id": "1990-08-18:090G0294", "article": 25})
+    assert not result.is_error
+    assert result.structured_content["articoli"][0]["articolo"] == "25"
+    body = json.loads(route.calls.last.request.read())
+    assert body["idArticolo"] == 25
+
+
 async def test_mcp_structured_output(client, api):
     api.post(URL_DETAIL).respond(200, json=detail_payload())
     async with Client(server.mcp) as c:
