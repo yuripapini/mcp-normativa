@@ -38,6 +38,10 @@ Utente Telegram
                                                                        sempre verificata su Normattiva)
 ```
 
+Lo schema sopra è la modalità `http`, con due processi separati. Con `MCP_TRANSPORT=inprocess` i 5 tool
+di `mcp_server` girano nello stesso processo del bot, tramite il trasporto in memoria di FastMCP, senza
+rete e senza `MCP_AUTH_TOKEN`. È la modalità usata dal blueprint `render.yaml` sul piano Free.
+
 | Componente | Percorso | Ruolo |
 |---|---|---|
 | Bot | `app/main.py` | FastAPI: webhook, health check, elaborazione degli update in background |
@@ -83,7 +87,8 @@ Copia `.env.example` in `.env` e valorizza le variabili:
 | `PUBLIC_BASE_URL` | URL pubblico HTTPS del bot. Su Render si può omettere: si usa `RENDER_EXTERNAL_URL` |
 | `ALLOWED_TELEGRAM_USER_IDS` | User ID ammessi, separati da virgola. **Se è vuota, nessuno è autorizzato** |
 | `LLM_PROVIDER` / `LLM_MODEL` / `OPENAI_API_KEY` | `openai`, `gpt-4.1-mini`, chiave API |
-| `MCP_SERVER_URL` | Es. `http://localhost:8001/mcp`. Se è vuota si usa `MCP_SERVER_HOSTPORT`, poi il default locale |
+| `MCP_TRANSPORT` | `http` (default): server MCP separato raggiunto via URL. `inprocess`: tool eseguiti nel processo del bot, un solo servizio |
+| `MCP_SERVER_URL` | Solo con `MCP_TRANSPORT=http`. Es. `http://localhost:8001/mcp`. Se è vuota si usa `MCP_SERVER_HOSTPORT`, poi il default locale |
 | `NORMATTIVA_BASE_URL` | `https://dati.normattiva.it`, usato come `Origin` verso l'API |
 | `LOG_LEVEL` / `RUNTIME_ENV` / `PORT` | `INFO`, `development` / `production` / `test`, `8000` |
 
@@ -102,7 +107,8 @@ Variabili opzionali, con default nel codice:
 | `MCP_HOST` / `MCP_PORT` | MCP | `0.0.0.0` / `8001` |
 
 Il server MCP legge la porta da `--port` o `MCP_PORT`, mai da `PORT`. Così i due processi possono
-condividere lo stesso `.env` in locale.
+condividere lo stesso `.env` in locale. Con `MCP_TRANSPORT=inprocess` le variabili "MCP" della tabella
+valgono per il servizio del bot.
 
 ### Configurazione Telegram
 
@@ -145,6 +151,9 @@ curl http://localhost:8000/healthz     # {"status":"ok"}
 curl -X POST http://localhost:8000/telegram/webhook -d '{}'   # 403: secret mancante
 ```
 
+In alternativa, senza il terminale 1: avvia il bot con `MCP_TRANSPORT=inprocess`, che esegue i tool nel
+proprio processo. All'avvio il log `mcp_transport` indica la modalità attiva.
+
 Con Docker (un'unica immagine per entrambi i servizi, utente non-root):
 
 ```bash
@@ -181,21 +190,37 @@ Le domande in `data/test_queries.yaml` servono per i test manuali end-to-end.
 
 ## Deploy su Render
 
-Il blueprint `render.yaml` definisce due Web Service (piano `starter`, regione Frankfurt) e collega in
-automatico tutto ciò che non è un segreto personale. **Non servono modifiche al codice**:
+Ci sono due blueprint. **Non servono modifiche al codice** con nessuno dei due:
+
+| File | Piano | Servizi | Costo |
+|---|---|---|---|
+| `render.yaml` (default) | `free` | 1: `lexbot-telegram` con i tool in-process (`MCP_TRANSPORT=inprocess`) | gratuito |
+| `render-starter.yaml` | `starter` | 2: `lexbot-telegram` e `lexbot-mcp` sulla rete privata | 2 istanze a pagamento |
+
+Il piano Free richiede un solo servizio perché i servizi Free non possono *ricevere* traffico dalla rete
+privata di Render. Altri limiti del piano Free:
+
+- il servizio si spegne dopo 15 minuti senza richieste. Il primo messaggio successivo attende circa un
+  minuto, poi le risposte tornano normali. Telegram ritenta la consegna degli update, quindi i messaggi
+  non vanno persi;
+- ci sono 750 ore gratuite al mese per workspace: un solo servizio sempre acceso ne usa circa 720;
+- Render può riavviare il servizio in qualsiasi momento. Il bot non conserva stato, salvo il rate limiter
+  in memoria.
+
+Valori impostati in automatico:
 
 | Variabile | Come viene impostata |
 |---|---|
-| `MCP_AUTH_TOKEN` (MCP) | `generateValue: true`, generata da Render |
-| `MCP_AUTH_TOKEN` (bot) | `fromService.envVarKey`: copiata dal servizio MCP |
-| `MCP_SERVER_HOSTPORT` (bot) | `fromService.property: hostport`: il bot chiama `http://<hostport>/mcp` sulla rete privata |
 | `TELEGRAM_WEBHOOK_SECRET` | `generateValue: true` (base64), normalizzata dal bot nel formato ammesso da Telegram |
 | URL pubblico del bot | `RENDER_EXTERNAL_URL`, impostata da Render |
+| `MCP_AUTH_TOKEN` (solo `render-starter.yaml`) | generata sul servizio MCP e copiata nel bot con `fromService.envVarKey` |
+| `MCP_SERVER_HOSTPORT` (solo `render-starter.yaml`) | `fromService.property: hostport`: il bot chiama `http://<hostport>/mcp` sulla rete privata |
 
 Passaggi:
 
 1. Pubblica la repo su GitHub o GitLab.
-2. **Render Dashboard -> New -> Blueprint**, seleziona la repo e conferma `render.yaml`.
+2. **Render Dashboard -> New -> Blueprint**, seleziona la repo e conferma `render.yaml`. Per la versione
+   a pagamento indica `render-starter.yaml` come Blueprint Path.
 3. Alla richiesta dei valori `sync: false` del servizio `lexbot-telegram`, inserisci:
    - `TELEGRAM_BOT_TOKEN`: token di BotFather;
    - `ALLOWED_TELEGRAM_USER_IDS`: i tuoi user ID, separati da virgola;
@@ -204,15 +229,11 @@ Passaggi:
    All'avvio il bot registra da solo il webhook su `<RENDER_EXTERNAL_URL>/telegram/webhook`.
 5. Verifica:
    - `curl https://<nome-servizio-bot>.onrender.com/healthz` restituisce `{"status":"ok"}`;
-   - nei log del bot c'è l'evento `webhook_set`;
+   - nei log del bot ci sono gli eventi `mcp_transport` (`inprocess` sul piano Free) e `webhook_set`;
    - su Telegram, `/start` al bot.
 
 Note:
 
-- La rete privata tra servizi richiede istanze a pagamento (`starter` o superiore). Con il piano free,
-  imposta a mano `MCP_SERVER_URL=https://<nome-servizio-mcp>.onrender.com/mcp`, che ha la precedenza su
-  `MCP_SERVER_HOSTPORT`. Tieni conto anche che dopo un periodo di inattività il primo messaggio può
-  superare il timeout.
 - Il rate limiter è in memoria, quindi il bot gira con `numInstances: 1`.
 - Per ruotare il secret del webhook, rigenera `TELEGRAM_WEBHOOK_SECRET` in dashboard e riavvia: il
   webhook viene registrato di nuovo all'avvio.

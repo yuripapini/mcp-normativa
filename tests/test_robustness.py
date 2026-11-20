@@ -16,8 +16,9 @@ from app import guardrails as g
 from app.config import DEFAULT_MCP_SERVER_URL, Settings
 from app.llm import answer_question
 from app.main import create_app
+from app.mcp_client import MCPToolClient
 from app.models import LLMResult, ToolCall, ToolSpec
-from app.telegram_bot import HELP_TEXT, START_TEXT, reply
+from app.telegram_bot import HELP_TEXT, START_TEXT, LexBot, reply
 from mcp_server import normattiva as nt
 from mcp_server import server
 from mcp_server.schemas import SearchInput
@@ -373,27 +374,90 @@ def test_mcp_url_resolution():
     assert s.effective_mcp_server_url == "https://m.example/mcp"
 
 
-def test_render_blueprint_is_consistent():
+BOT_SECRETS = {"TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET", "OPENAI_API_KEY", "ALLOWED_TELEGRAM_USER_IDS"}
+
+
+def _blueprint_services(path: str) -> dict[str, dict[str, Any]]:
     import yaml
 
+    blueprint = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    services = {s["name"]: s for s in blueprint["services"]}
+    for svc in services.values():
+        assert "$PORT" in svc["startCommand"] and svc["healthCheckPath"] == "/healthz"
+    return services
+
+
+def _env_keys(service: dict[str, Any]) -> set[str]:
+    return {e["key"] for e in service["envVars"]}
+
+
+def test_render_blueprint_free_single_service():
     from mcp_server.server import MCPSettings
 
-    blueprint = yaml.safe_load(Path("render.yaml").read_text(encoding="utf-8"))
-    services = {s["name"]: s for s in blueprint["services"]}
-    bot_keys = {e["key"] for e in services["lexbot-telegram"]["envVars"]}
-    mcp_keys = {e["key"] for e in services["lexbot-mcp"]["envVars"]}
+    services = _blueprint_services("render.yaml")
+    assert set(services) == {"lexbot-telegram"}
+    bot = services["lexbot-telegram"]
+    assert bot["plan"] == "free"
+    keys = _env_keys(bot)
+    # Bot e tool MCP nello stesso processo: valgono le variabili di entrambi.
+    known = {k.upper() for k in Settings.model_fields} | {k.upper() for k in MCPSettings.model_fields}
+    assert keys <= known | {"PYTHON_VERSION"}, keys - known
+    assert keys >= BOT_SECRETS
+    env = {e["key"]: e.get("value") for e in bot["envVars"]}
+    assert env["MCP_TRANSPORT"] == "inprocess"
+    # Nessun riferimento a un server MCP separato (i servizi Free non ricevono rete privata).
+    assert not keys & {"MCP_SERVER_HOSTPORT", "MCP_SERVER_URL", "MCP_AUTH_TOKEN"}
+
+
+def test_render_blueprint_starter_two_services():
+    from mcp_server.server import MCPSettings
+
+    services = _blueprint_services("render-starter.yaml")
+    bot_keys = _env_keys(services["lexbot-telegram"])
+    mcp_keys = _env_keys(services["lexbot-mcp"])
     # Ogni variabile del blueprint è letta dal codice (nessun refuso nei nomi).
     known_bot = {k.upper() for k in Settings.model_fields} | {"PYTHON_VERSION"}
     known_mcp = {k.upper() for k in MCPSettings.model_fields} | {"PYTHON_VERSION"}
     assert bot_keys <= known_bot, bot_keys - known_bot
     assert mcp_keys <= known_mcp, mcp_keys - known_mcp
-    # I segreti indispensabili sono presenti (generati, collegati o da dashboard).
-    assert {
-        "TELEGRAM_BOT_TOKEN",
-        "TELEGRAM_WEBHOOK_SECRET",
-        "OPENAI_API_KEY",
-        "ALLOWED_TELEGRAM_USER_IDS",
-    } <= bot_keys
+    assert bot_keys >= BOT_SECRETS
     assert {"MCP_AUTH_TOKEN", "MCP_SERVER_HOSTPORT"} <= bot_keys
-    for svc in services.values():
-        assert "$PORT" in svc["startCommand"] and svc["healthCheckPath"] == "/healthz"
+    assert "MCP_TRANSPORT" not in bot_keys  # default "http"
+
+
+# ------------------------------------------------------ MCP in-process ---
+
+
+def test_mcp_transport_setting():
+    assert not Settings().mcp_inprocess
+    assert Settings(mcp_transport=" InProcess ").mcp_inprocess
+    assert not Settings(mcp_transport="http").mcp_inprocess
+
+
+def test_mcp_client_requires_target():
+    with pytest.raises(ValueError):
+        MCPToolClient()
+
+
+def test_lexbot_selects_transport():
+    assert LexBot(Settings(mcp_transport="inprocess")).mcp.transport == "inprocess"
+    http_bot = LexBot(Settings(mcp_server_hostport="lexbot-mcp:10000"))
+    assert http_bot.mcp.transport == "http"
+    assert http_bot.mcp.url == "http://lexbot-mcp:10000/mcp"
+
+
+async def test_inprocess_session_runs_tools(client, api):
+    api.post(URL_DETAIL).respond(200, json=detail_payload())
+    mcp = LexBot(Settings(mcp_transport="inprocess")).mcp
+    async with mcp.session() as session:
+        names = {t.name for t in await session.list_tools()}
+        payload = await session.call_tool("get_official_source", {"law_id": "1990-08-18:090G0294"})
+    assert len(names) == 5 and "search_italian_law" in names
+    assert '"law_id": "1990-08-18:090G0294"' in payload
+    assert "normattiva.it" in payload
+
+
+async def test_inprocess_session_tool_error_is_readable(client):
+    async with MCPToolClient.inprocess().session() as session:
+        payload = await session.call_tool("get_official_source", {"law_id": "boh boh"})
+    assert "Identificativo non riconosciuto" in payload

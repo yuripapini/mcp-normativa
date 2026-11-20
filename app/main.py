@@ -52,6 +52,8 @@ def create_app(settings: Settings | None = None, processor: UpdateProcessor | No
                 await application.process_update(Update.de_json(data, application.bot))
 
             app.state.processor = _process
+            mcp_client = application.bot_data["lex"].mcp
+            log.info("mcp_transport", transport=getattr(mcp_client, "transport", "custom"))
             if not settings.is_test:
                 await _set_webhook(application, settings)
         else:

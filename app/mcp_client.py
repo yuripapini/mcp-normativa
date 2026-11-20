@@ -53,16 +53,45 @@ class _FastMCPSession:
 
 
 class MCPToolClient:
-    """Factory di sessioni MCP con timeout e autenticazione opzionale."""
+    """Factory di sessioni MCP con timeout e autenticazione opzionale.
 
-    def __init__(self, url: str, *, timeout: float = 30.0, auth_token: str | None = None) -> None:
+    Con `server` valorizzato i tool sono eseguiti nello stesso processo del bot
+    (trasporto in memoria di FastMCP), senza server HTTP separato.
+    """
+
+    def __init__(
+        self,
+        url: str = "",
+        *,
+        timeout: float = 30.0,
+        auth_token: str | None = None,
+        server: Any | None = None,
+    ) -> None:
+        if not url and server is None:
+            raise ValueError("serve un URL MCP oppure un server in-process")
         self.url = url
         self.timeout = timeout
         self.auth_token = auth_token
+        self.server = server
+
+    @classmethod
+    def inprocess(cls, *, timeout: float = 30.0) -> MCPToolClient:
+        """Client che esegue i tool di `mcp_server.server` nello stesso processo."""
+        from mcp_server.server import mcp
+
+        return cls(timeout=timeout, server=mcp)
+
+    @property
+    def transport(self) -> str:
+        """Trasporto in uso, per i log: "inprocess" oppure "http"."""
+        return "inprocess" if self.server is not None else "http"
 
     @asynccontextmanager
     async def session(self) -> AsyncIterator[ToolSession]:
         """Apre una sessione MCP per la durata di una richiesta utente."""
-        client = Client(self.url, timeout=self.timeout, auth=self.auth_token or None)
+        if self.server is not None:
+            client = Client(self.server, timeout=self.timeout)
+        else:
+            client = Client(self.url, timeout=self.timeout, auth=self.auth_token or None)
         async with client:
             yield _FastMCPSession(client, self.timeout)

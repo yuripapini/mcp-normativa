@@ -100,11 +100,16 @@ class LexBot:
         rate_limiter: RateLimiter | None = None,
     ) -> None:
         self.settings = settings
-        self.mcp = mcp or MCPToolClient(
-            settings.effective_mcp_server_url,
-            timeout=settings.request_timeout_seconds,
-            auth_token=settings.mcp_auth_token,
-        )
+        if mcp is not None:
+            self.mcp = mcp
+        elif settings.mcp_inprocess:
+            self.mcp = MCPToolClient.inprocess(timeout=settings.request_timeout_seconds)
+        else:
+            self.mcp = MCPToolClient(
+                settings.effective_mcp_server_url,
+                timeout=settings.request_timeout_seconds,
+                auth_token=settings.mcp_auth_token,
+            )
         self._provider_factory = provider_factory or (
             lambda: build_provider(
                 settings.llm_provider,

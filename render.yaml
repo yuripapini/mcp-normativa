@@ -1,38 +1,21 @@
-# Blueprint Render: due Web Service nella stessa regione.
-# Valori generati o collegati automaticamente (nessuna modifica al codice):
-#   - MCP_AUTH_TOKEN: generato su lexbot-mcp e copiato nel bot (fromService.envVarKey)
-#   - TELEGRAM_WEBHOOK_SECRET: generato da Render (base64); il bot lo normalizza
-#     nei caratteri ammessi da Telegram (SHA-256 esadecimale)
-#   - MCP_SERVER_HOSTPORT: host:porta privati di lexbot-mcp -> http://<hostport>/mcp
-#   - URL pubblico del bot: RENDER_EXTERNAL_URL, impostata da Render
+# Blueprint Render (piano Free): un solo Web Service.
+# I tool MCP girano nello stesso processo del bot (MCP_TRANSPORT=inprocess), perché
+# i servizi Free non ricevono traffico dalla rete privata di Render.
+# Alternativa a pagamento con server MCP separato: render-starter.yaml.
+#
+# Limiti del piano Free: il servizio si spegne dopo 15 minuti senza richieste e il
+# primo messaggio successivo attende circa un minuto (Telegram ritenta la consegna);
+# 750 ore gratuite al mese per workspace.
+#
+# Valori automatici: TELEGRAM_WEBHOOK_SECRET generato da Render (il bot lo normalizza
+# nei caratteri ammessi da Telegram); URL pubblico da RENDER_EXTERNAL_URL.
 # Da inserire in dashboard alla creazione (sync: false): TELEGRAM_BOT_TOKEN,
 # ALLOWED_TELEGRAM_USER_IDS, OPENAI_API_KEY. Mai scrivere segreti in questo file.
 services:
   - type: web
-    name: lexbot-mcp
-    runtime: python
-    plan: starter
-    region: frankfurt
-    buildCommand: pip install -r requirements.txt
-    startCommand: python -m mcp_server.server --host 0.0.0.0 --port $PORT
-    healthCheckPath: /healthz
-    autoDeploy: true
-    envVars:
-      - key: PYTHON_VERSION
-        value: "3.12.8"
-      - key: NORMATTIVA_BASE_URL
-        value: https://dati.normattiva.it
-      - key: LOG_LEVEL
-        value: INFO
-      - key: LEXIFINA_DISCOVERY_ENABLED
-        value: "false"
-      - key: MCP_AUTH_TOKEN
-        generateValue: true
-
-  - type: web
     name: lexbot-telegram
     runtime: python
-    plan: starter
+    plan: free
     region: frankfurt
     numInstances: 1   # rate limiter in memoria: una sola istanza
     buildCommand: pip install -r requirements.txt
@@ -50,20 +33,14 @@ services:
         value: openai
       - key: LLM_MODEL
         value: gpt-4.1-mini
+      - key: MCP_TRANSPORT
+        value: inprocess
       - key: NORMATTIVA_BASE_URL
         value: https://dati.normattiva.it
+      - key: LEXIFINA_DISCOVERY_ENABLED
+        value: "false"
       - key: TELEGRAM_WEBHOOK_SECRET
         generateValue: true
-      - key: MCP_AUTH_TOKEN
-        fromService:
-          type: web
-          name: lexbot-mcp
-          envVarKey: MCP_AUTH_TOKEN
-      - key: MCP_SERVER_HOSTPORT
-        fromService:
-          type: web
-          name: lexbot-mcp
-          property: hostport
       # Da impostare in dashboard al primo deploy.
       - key: TELEGRAM_BOT_TOKEN
         sync: false

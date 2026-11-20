@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     # Opzionale: endpoint OpenAI-compatible alternativo.
     openai_base_url: str = "https://api.openai.com/v1"
 
+    # "http" (default): server MCP separato raggiunto via URL.
+    # "inprocess": tool MCP eseguiti nel processo del bot (un solo servizio, es. Render Free).
+    mcp_transport: str = "http"
     # Vuota: si usa MCP_SERVER_HOSTPORT (rete privata Render) oppure il default locale.
     mcp_server_url: str = ""
     # Impostata dal blueprint Render (fromService.property=hostport), es. "lexbot-mcp:10000".
@@ -95,6 +98,11 @@ class Settings(BaseSettings):
         if self.mcp_server_hostport.strip():
             return f"http://{self.mcp_server_hostport.strip()}/mcp"
         return DEFAULT_MCP_SERVER_URL
+
+    @property
+    def mcp_inprocess(self) -> bool:
+        """True quando MCP_TRANSPORT=inprocess."""
+        return self.mcp_transport.strip().lower() == "inprocess"
 
     @property
     def is_test(self) -> bool:
